@@ -129,7 +129,8 @@ func main() {
 
 	todaysLunch, err := getTodaysLunch(opts)
 	if err != nil {
-		log.Fatalf("Failed to fetch menu: %v", err)
+		log.Printf("Today there seems to be no lunch: %v", err)
+		return
 	}
 
 	err = sendToSlack(todaysLunch, webhookURL)
