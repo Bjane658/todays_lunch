@@ -64,7 +64,7 @@ func getTodaysLunch(options Options) (string, error) {
 	if options.CustomDate != "" {
 		todayStr = options.CustomDate
 	}
-	fmt.Println("Checking menu for %s", todayStr)
+	fmt.Println("Checking menu for ", todayStr)
 
 	c.OnHTML("div.divider", func(e *colly.HTMLElement) {
 		days := strings.Split(e.Text, "–")
@@ -73,7 +73,6 @@ func getTodaysLunch(options Options) (string, error) {
 			if day == "" {
 				continue
 			}
-			//todayStr = "Montag, 14. Juli"
 
 			if strings.Contains(day, todayStr) {
 				lunch = extractMenuSection(day)
