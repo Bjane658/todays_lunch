@@ -1,4 +1,4 @@
-module sipgatekitchen
+module todays_lunch
 
 go 1.24.5
 
