@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/joho/godotenv"
 	"log"
 	"net/http"
 	"os"
@@ -116,10 +115,6 @@ func sendToSlack(message, webhookURL string) error {
 
 func main() {
 	var opts Options
-	err := godotenv.Load() // Looks for .env in the current directory
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
 
 	opts.MenuUrl = os.Getenv("MENU_URL")
 	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
