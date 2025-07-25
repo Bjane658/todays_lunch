@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gocolly/colly/v2"
 )
@@ -41,7 +42,7 @@ func getTodaysLunch(options Options) (string, error) {
 		"Tuesday":   "Dienstag",
 		"Wednesday": "Mittwoch",
 		"Thursday":  "Donnerstag",
-		"Friday":    "Freitag",
+		"Friday":    "Friday",
 		"Saturday":  "Samstag",
 		"Sunday":    "Sonntag",
 	}[today.Weekday().String()]
@@ -73,8 +74,10 @@ func getTodaysLunch(options Options) (string, error) {
 			if day == "" {
 				continue
 			}
+			strippedDay := removeAllWhitespace(day)
+			strippedTodayStr := removeAllWhitespace(todayStr)
 
-			if strings.Contains(day, todayStr) {
+			if strings.Contains(strippedDay, strippedTodayStr) {
 				lunch = extractMenuSection(day)
 				fmt.Printf("Today: %s, on the menu: %s\n", todayStr, lunch)
 			}
@@ -112,6 +115,15 @@ func sendToSlack(message, webhookURL string) error {
 	return nil
 }
 
+func removeAllWhitespace(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 func main() {
 	var opts Options
 
@@ -132,9 +144,12 @@ func main() {
 		return
 	}
 
+	log.Printf("Today lunch: %s", todaysLunch)
+
 	err = sendToSlack(todaysLunch, webhookURL)
 	if err != nil {
 		log.Fatalf("Failed to send Slack message: %v", err)
 	}
 	fmt.Println("Successfully sent menu to Slack.")
+
 }
