@@ -37,15 +37,16 @@ func getTodaysLunch(options Options) (string, error) {
 
 	// Build today's date string in German format, e.g., "Donnerstag, 20. Juli"
 	today := time.Now()
-	weekday := map[string]string{
+	weekday := today.Weekday().String()
+	weekdayTranslated := map[string]string{
 		"Monday":    "Montag",
 		"Tuesday":   "Dienstag",
 		"Wednesday": "Mittwoch",
 		"Thursday":  "Donnerstag",
-		"Friday":    "Friday",
+		"Friday":    "Freitag",
 		"Saturday":  "Samstag",
 		"Sunday":    "Sonntag",
-	}[today.Weekday().String()]
+	}[weekday]
 	month := map[time.Month]string{
 		time.January:   "Januar",
 		time.February:  "Februar",
@@ -61,13 +62,14 @@ func getTodaysLunch(options Options) (string, error) {
 		time.December:  "Dezember",
 	}[today.Month()]
 
-	todayStr := fmt.Sprintf("%s, %d. %s", weekday, today.Day(), month)
+	todayStr := fmt.Sprintf("%s, %d. %s", weekdayTranslated, today.Day(), month)
+	todayDay := fmt.Sprintf("%d", today.Day())
 	if options.CustomDate != "" {
 		todayStr = options.CustomDate
 	}
 	fmt.Println("Checking menu for ", todayStr)
 
-	c.OnHTML("div.divider", func(e *colly.HTMLElement) {
+	c.OnHTML("div.block div.divider", func(e *colly.HTMLElement) {
 		days := strings.Split(e.Text, "–")
 		for _, day := range days {
 			day = strings.TrimSpace(day)
@@ -75,9 +77,9 @@ func getTodaysLunch(options Options) (string, error) {
 				continue
 			}
 			strippedDay := removeAllWhitespace(day)
-			strippedTodayStr := removeAllWhitespace(todayStr)
 
-			if strings.Contains(strippedDay, strippedTodayStr) {
+			fmt.Printf("")
+			if (strings.Contains(strippedDay, weekday) || strings.Contains(strippedDay, weekdayTranslated)) && strings.Contains(strippedDay, todayDay) && strings.Contains(strippedDay, month) {
 				lunch = extractMenuSection(day)
 				fmt.Printf("Today: %s, on the menu: %s\n", todayStr, lunch)
 			}
