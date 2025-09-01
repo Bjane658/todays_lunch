@@ -19,6 +19,22 @@ type Options struct {
 	MenuUrl    string
 }
 
+type ChatCompletionRequest struct {
+	Model    string        `json:"model"`
+	Messages []ChatMessage `json:"messages"`
+}
+
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type ChatCompletionResponse struct {
+	Choices []struct {
+		Message ChatMessage `json:"message"`
+	} `json:"choices"`
+}
+
 func extractMenuSection(s string) string {
 	start := strings.Index(s, "Mittag")
 	end := strings.Index(s, "Dessert")
@@ -101,7 +117,49 @@ func getTodaysLunch(options Options) (string, error) {
 	return lunch, nil
 }
 
-func sendToSlack(message, webhookURL string) error {
+func sendToSlackWithDescription(message, slackToken, openaiToken string) error {
+	payload := map[string]interface{}{"channel": "#heute-mittag", "text": message}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest("POST", "https://slack.com/api/chat.postMessage", bytes.NewBuffer(body))
+	req.Header.Set("Authorization", "Bearer "+slackToken)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var postResp map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&postResp)
+	fmt.Println("Send response:", postResp)
+
+	chatMessage := []ChatMessage{{Role: "user", Content: fmt.Sprintf("Heute Mittag gibt es %s zu essen. Ich kann mir leider nichts darunter vorstellen. Bitte beschreibe mir dieses Gericht. Bitte verzichte auf höflichkeitsformen in deiner Antwort wie z.B. Gerne!", message)}}
+	lunchDescription, err := createChatCompletion(openaiToken, "gpt-4.1", chatMessage)
+	if err != nil {
+		fmt.Println("Error creating lunch description:", err)
+		return err
+	}
+
+	// Extract the ts
+	ts := postResp["ts"].(string)
+	fmt.Printf("Ts: %s\n", ts)
+	payload = map[string]interface{}{"channel": "#heute-mittag", "text": lunchDescription, "thread_ts": ts}
+	body, _ = json.Marshal(payload)
+
+	req, err = http.NewRequest("POST", "https://slack.com/api/chat.postMessage", bytes.NewBuffer(body))
+	req.Header.Set("Authorization", "Bearer "+slackToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
+func pushToSlack(message, webhookURL string) error {
 	payload := map[string]string{"text": message}
 	body, _ := json.Marshal(payload)
 
@@ -126,13 +184,53 @@ func removeAllWhitespace(s string) string {
 	}, s)
 }
 
+func createChatCompletion(token, model string, messages []ChatMessage) (string, error) {
+	reqBody := ChatCompletionRequest{
+		Model:    model,
+		Messages: messages,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result ChatCompletionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("no choices in response")
+	}
+
+	return result.Choices[0].Message.Content, nil
+}
+
 func main() {
 	var opts Options
 
 	opts.MenuUrl = os.Getenv("MENU_URL")
 	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
+	slackToken := os.Getenv("SLACK_TOKEN")
+	openAiToken := os.Getenv("OPENAI_TOKEN")
 
-	if opts.MenuUrl == "" || webhookURL == "" {
+	if opts.MenuUrl == "" || webhookURL == "" || openAiToken == "" || slackToken == "" {
 		log.Fatal("Missing required environment variables")
 	}
 
@@ -148,7 +246,8 @@ func main() {
 
 	log.Printf("Today lunch: %s", todaysLunch)
 
-	err = sendToSlack(todaysLunch, webhookURL)
+	//err = pushToSlack(todaysLunch, webhookURL)
+	err = sendToSlackWithDescription(todaysLunch, slackToken, openAiToken)
 	if err != nil {
 		log.Fatalf("Failed to send Slack message: %v", err)
 	}
