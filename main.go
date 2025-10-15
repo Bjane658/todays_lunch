@@ -79,29 +79,34 @@ func getTodaysLunch(options Options) (string, error) {
 	}[today.Month()]
 
 	todayStr := fmt.Sprintf("%s, %d. %s", weekdayTranslated, today.Day(), month)
-	todayDay := fmt.Sprintf("%d", today.Day())
+	//todayDay := fmt.Sprintf("%d", today.Day())
 	if options.CustomDate != "" {
 		todayStr = options.CustomDate
 	}
 	fmt.Println("Checking menu for ", todayStr)
-
-	c.OnHTML("div.block div.divider", func(e *colly.HTMLElement) {
-		days := strings.Split(e.Text, "–")
-		for _, day := range days {
-			day = strings.TrimSpace(day)
-			if day == "" {
-				continue
-			}
-			strippedDay := removeAllWhitespace(day)
-
-			fmt.Printf("")
-			if (strings.Contains(strippedDay, weekday) || strings.Contains(strippedDay, weekdayTranslated)) && strings.Contains(strippedDay, todayDay) && strings.Contains(strippedDay, month) {
-				lunch = extractMenuSection(day)
-				fmt.Printf("Today: %s, on the menu: %s\n", todayStr, lunch)
-			}
-
-		}
+	c.OnHTML("div.divider", func(e *colly.HTMLElement) {
+		fmt.Println(e.Text)
 	})
+
+	/*
+		c.OnHTML("div.container div.divider", func(e *colly.HTMLElement) {
+			days := strings.Split(e.Text, "–")
+			for _, day := range days {
+				day = strings.TrimSpace(day)
+				if day == "" {
+					continue
+				}
+				strippedDay := removeAllWhitespace(day)
+
+				fmt.Printf("strippedDay: %s\n", strippedDay)
+				if (strings.Contains(strippedDay, weekday) || strings.Contains(strippedDay, weekdayTranslated)) && strings.Contains(strippedDay, todayDay) && strings.Contains(strippedDay, month) {
+					lunch = extractMenuSection(day)
+					fmt.Printf("Today: %s, on the menu: %s\n", todayStr, lunch)
+				}
+
+			}
+		})
+	*/
 
 	err := c.Visit(options.MenuUrl)
 	if err != nil {
@@ -115,6 +120,65 @@ func getTodaysLunch(options Options) (string, error) {
 	fmt.Println("lunch:", lunch)
 
 	return lunch, nil
+}
+
+func identifyTodaysLunch(options Options, openaiToken string) (string, error) {
+	c := colly.NewCollector()
+	today := time.Now()
+	weekday := today.Weekday().String()
+	weekdayTranslated := map[string]string{
+		"Monday":    "Montag",
+		"Tuesday":   "Dienstag",
+		"Wednesday": "Mittwoch",
+		"Thursday":  "Donnerstag",
+		"Friday":    "Freitag",
+		"Saturday":  "Samstag",
+		"Sunday":    "Sonntag",
+	}[weekday]
+	month := map[time.Month]string{
+		time.January:   "Januar",
+		time.February:  "Februar",
+		time.March:     "März",
+		time.April:     "April",
+		time.May:       "Mai",
+		time.June:      "Juni",
+		time.July:      "Juli",
+		time.August:    "August",
+		time.September: "September",
+		time.October:   "Oktober",
+		time.November:  "November",
+		time.December:  "Dezember",
+	}[today.Month()]
+
+	todaysDate := fmt.Sprintf("%s, %d. %s", weekdayTranslated, today.Day(), month)
+	fmt.Println("Checking menu for ", todaysDate)
+	//var todaysDate = "14. Oktober 2025"
+	//todayDay := fmt.Sprintf("%d", today.Day())
+	todayStr := fmt.Sprintf("%s, %d. %s", weekdayTranslated, today.Day(), month)
+	if options.CustomDate != "" {
+		todayStr = options.CustomDate
+	}
+	completeMenu := ""
+	fmt.Println("Checking menu for ", todayStr)
+	c.OnHTML("section.text", func(e *colly.HTMLElement) {
+		fmt.Println(e.Text)
+		completeMenu += e.Text
+	})
+
+	err := c.Visit(options.MenuUrl)
+	if err != nil {
+		return "", err
+	}
+
+	chatMessage := []ChatMessage{{Role: "user", Content: fmt.Sprintf("Was gibt es heute Mittag am %s zu essen?. Bitte antworte nur mit dem gefundenen Mittagsessen.\n%s", todaysDate, completeMenu)}}
+	todaysLunch, err := createChatCompletion(openaiToken, "gpt-5", chatMessage)
+	if err != nil {
+		fmt.Println("Error creating lunch description:", err)
+		return "", err
+	}
+	fmt.Println("TodaysLunch", todaysLunch)
+
+	return todaysLunch, nil
 }
 
 func sendToSlackWithDescription(message, slackToken, openaiToken string) error {
@@ -238,19 +302,29 @@ func main() {
 		opts.CustomDate = os.Args[1]
 	}
 
-	todaysLunch, err := getTodaysLunch(opts)
+	todaysLunch, err := identifyTodaysLunch(opts, openAiToken)
 	if err != nil {
-		log.Printf("Today there seems to be no lunch: %v", err)
 		return
 	}
-
-	log.Printf("Today lunch: %s", todaysLunch)
-
-	//err = pushToSlack(todaysLunch, webhookURL)
 	err = sendToSlackWithDescription(todaysLunch, slackToken, openAiToken)
 	if err != nil {
 		log.Fatalf("Failed to send Slack message: %v", err)
 	}
 	fmt.Println("Successfully sent menu to Slack.")
 
+	/*	todaysLunch, err := getTodaysLunch(opts)
+		if err != nil {
+			log.Printf("Today there seems to be no lunch: %v", err)
+			return
+		}
+
+		log.Printf("Today lunch: %s", todaysLunch)
+
+		//err = pushToSlack(todaysLunch, webhookURL)
+		err = sendToSlackWithDescription(todaysLunch, slackToken, openAiToken)
+		if err != nil {
+			log.Fatalf("Failed to send Slack message: %v", err)
+		}
+		fmt.Println("Successfully sent menu to Slack.")
+	*/
 }
