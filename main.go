@@ -35,6 +35,19 @@ type ChatCompletionResponse struct {
 	} `json:"choices"`
 }
 
+type ImageGenerationRequest struct {
+	Model  string `json:"model"`
+	Prompt string `json:"prompt"`
+	N      int    `json:"n"`
+	Size   string `json:"size"`
+}
+
+type ImageGenerationResponse struct {
+	Data []struct {
+		URL string `json:"url"`
+	} `json:"data"`
+}
+
 func extractMenuSection(s string) string {
 	start := strings.Index(s, "Mittag")
 	end := strings.Index(s, "Dessert")
@@ -182,7 +195,39 @@ func identifyTodaysLunch(options Options, openaiToken string) (string, error) {
 }
 
 func sendToSlackWithDescription(message, slackToken, openaiToken string) error {
-	payload := map[string]interface{}{"channel": "#heute-mittag", "text": message}
+	// Generate image first
+	imageURL, err := generateMealImage(openaiToken, message)
+	if err != nil {
+		fmt.Println("Warning: Could not generate image:", err)
+		// Continue without image
+		imageURL = ""
+	}
+
+	// Create blocks for better formatting
+	blocks := []map[string]interface{}{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("*Heute Mittag:*\n%s", message),
+			},
+		},
+	}
+
+	// Add image block if generation was successful
+	if imageURL != "" {
+		blocks = append(blocks, map[string]interface{}{
+			"type":      "image",
+			"image_url": imageURL,
+			"alt_text":  message,
+		})
+	}
+
+	payload := map[string]interface{}{
+		"channel": "#heute-mittag",
+		"text":    message,
+		"blocks":  blocks,
+	}
 	body, _ := json.Marshal(payload)
 
 	req, err := http.NewRequest("POST", "https://slack.com/api/chat.postMessage", bytes.NewBuffer(body))
@@ -284,6 +329,48 @@ func createChatCompletion(token, model string, messages []ChatMessage) (string, 
 	}
 
 	return result.Choices[0].Message.Content, nil
+}
+
+func generateMealImage(token, mealName string) (string, error) {
+	prompt := fmt.Sprintf("Professional food photography of %s, appetizing, well-lit, restaurant quality, top view, natural lighting", mealName)
+	
+	reqBody := ImageGenerationRequest{
+		Model:  "dall-e-3",
+		Prompt: prompt,
+		N:      1,
+		Size:   "1024x1024",
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/images/generations", bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result ImageGenerationResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	if len(result.Data) == 0 {
+		return "", fmt.Errorf("no image generated")
+	}
+
+	return result.Data[0].URL, nil
 }
 
 func main() {
