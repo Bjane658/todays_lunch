@@ -4,14 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/gocolly/colly/v2"
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
-	"unicode"
-
-	"github.com/gocolly/colly/v2"
 )
 
 type Options struct {
@@ -48,93 +45,6 @@ type ImageGenerationResponse struct {
 	} `json:"data"`
 }
 
-func extractMenuSection(s string) string {
-	start := strings.Index(s, "Mittag")
-	end := strings.Index(s, "Dessert")
-
-	if start == -1 || end == -1 || end <= start {
-		return "" // Not found or invalid order
-	}
-
-	// Slice from after "Mittag" to just before "Dessert"
-	return strings.TrimSpace(s[start+len("Mittag") : end])
-}
-
-func getTodaysLunch(options Options) (string, error) {
-	c := colly.NewCollector()
-	lunch := ""
-
-	// Build today's date string in German format, e.g., "Donnerstag, 20. Juli"
-	today := time.Now()
-	weekday := today.Weekday().String()
-	weekdayTranslated := map[string]string{
-		"Monday":    "Montag",
-		"Tuesday":   "Dienstag",
-		"Wednesday": "Mittwoch",
-		"Thursday":  "Donnerstag",
-		"Friday":    "Freitag",
-		"Saturday":  "Samstag",
-		"Sunday":    "Sonntag",
-	}[weekday]
-	month := map[time.Month]string{
-		time.January:   "Januar",
-		time.February:  "Februar",
-		time.March:     "März",
-		time.April:     "April",
-		time.May:       "Mai",
-		time.June:      "Juni",
-		time.July:      "Juli",
-		time.August:    "August",
-		time.September: "September",
-		time.October:   "Oktober",
-		time.November:  "November",
-		time.December:  "Dezember",
-	}[today.Month()]
-
-	todayStr := fmt.Sprintf("%s, %d. %s", weekdayTranslated, today.Day(), month)
-	//todayDay := fmt.Sprintf("%d", today.Day())
-	if options.CustomDate != "" {
-		todayStr = options.CustomDate
-	}
-	fmt.Println("Checking menu for ", todayStr)
-	c.OnHTML("div.divider", func(e *colly.HTMLElement) {
-		fmt.Println(e.Text)
-	})
-
-	/*
-		c.OnHTML("div.container div.divider", func(e *colly.HTMLElement) {
-			days := strings.Split(e.Text, "–")
-			for _, day := range days {
-				day = strings.TrimSpace(day)
-				if day == "" {
-					continue
-				}
-				strippedDay := removeAllWhitespace(day)
-
-				fmt.Printf("strippedDay: %s\n", strippedDay)
-				if (strings.Contains(strippedDay, weekday) || strings.Contains(strippedDay, weekdayTranslated)) && strings.Contains(strippedDay, todayDay) && strings.Contains(strippedDay, month) {
-					lunch = extractMenuSection(day)
-					fmt.Printf("Today: %s, on the menu: %s\n", todayStr, lunch)
-				}
-
-			}
-		})
-	*/
-
-	err := c.Visit(options.MenuUrl)
-	if err != nil {
-		return "", err
-	}
-
-	if lunch == "" {
-		return "", fmt.Errorf("lunch for today not found")
-	}
-
-	fmt.Println("lunch:", lunch)
-
-	return lunch, nil
-}
-
 func identifyTodaysLunch(options Options, openaiToken string) (string, error) {
 	c := colly.NewCollector()
 	today := time.Now()
@@ -165,8 +75,6 @@ func identifyTodaysLunch(options Options, openaiToken string) (string, error) {
 
 	todaysDate := fmt.Sprintf("%s, %d. %s", weekdayTranslated, today.Day(), month)
 	fmt.Println("Checking menu for ", todaysDate)
-	//var todaysDate = "14. Oktober 2025"
-	//todayDay := fmt.Sprintf("%d", today.Day())
 	todayStr := fmt.Sprintf("%s, %d. %s", weekdayTranslated, today.Day(), month)
 	if options.CustomDate != "" {
 		todayStr = options.CustomDate
@@ -209,7 +117,7 @@ func sendToSlackWithDescription(message, slackToken, openaiToken string) error {
 			"type": "section",
 			"text": map[string]string{
 				"type": "mrkdwn",
-				"text": fmt.Sprintf("*Heute Mittag:*\n%s", message),
+				"text": fmt.Sprintf("%s", message),
 			},
 		},
 	}
@@ -268,31 +176,6 @@ func sendToSlackWithDescription(message, slackToken, openaiToken string) error {
 	return nil
 }
 
-func pushToSlack(message, webhookURL string) error {
-	payload := map[string]string{"text": message}
-	body, _ := json.Marshal(payload)
-
-	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("Slack webhook failed with status: %s", resp.Status)
-	}
-	return nil
-}
-
-func removeAllWhitespace(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) {
-			return -1
-		}
-		return r
-	}, s)
-}
-
 func createChatCompletion(token, model string, messages []ChatMessage) (string, error) {
 	reqBody := ChatCompletionRequest{
 		Model:    model,
@@ -332,8 +215,7 @@ func createChatCompletion(token, model string, messages []ChatMessage) (string, 
 }
 
 func generateMealImage(token, mealName string) (string, error) {
-	prompt := fmt.Sprintf("Professional food photography of %s, appetizing, well-lit, restaurant quality, top view, natural lighting", mealName)
-	
+	prompt := fmt.Sprintf("Professional food photography of %s, appetizing, well-lit, restaurant quality, top view, natural lighting, ultra realistic", mealName)
 	reqBody := ImageGenerationRequest{
 		Model:  "dall-e-3",
 		Prompt: prompt,
@@ -377,11 +259,10 @@ func main() {
 	var opts Options
 
 	opts.MenuUrl = os.Getenv("MENU_URL")
-	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
 	slackToken := os.Getenv("SLACK_TOKEN")
 	openAiToken := os.Getenv("OPENAI_TOKEN")
 
-	if opts.MenuUrl == "" || webhookURL == "" || openAiToken == "" || slackToken == "" {
+	if opts.MenuUrl == "" || openAiToken == "" || slackToken == "" {
 		log.Fatal("Missing required environment variables")
 	}
 
@@ -398,20 +279,4 @@ func main() {
 		log.Fatalf("Failed to send Slack message: %v", err)
 	}
 	fmt.Println("Successfully sent menu to Slack.")
-
-	/*	todaysLunch, err := getTodaysLunch(opts)
-		if err != nil {
-			log.Printf("Today there seems to be no lunch: %v", err)
-			return
-		}
-
-		log.Printf("Today lunch: %s", todaysLunch)
-
-		//err = pushToSlack(todaysLunch, webhookURL)
-		err = sendToSlackWithDescription(todaysLunch, slackToken, openAiToken)
-		if err != nil {
-			log.Fatalf("Failed to send Slack message: %v", err)
-		}
-		fmt.Println("Successfully sent menu to Slack.")
-	*/
 }
