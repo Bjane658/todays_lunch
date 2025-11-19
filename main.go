@@ -104,12 +104,14 @@ func identifyTodaysLunch(options Options, openaiToken string) (string, error) {
 
 func sendToSlackWithDescription(message, slackToken, openaiToken string) error {
 	// Generate image first
-	imageURL, err := generateMealImage(openaiToken, message)
-	if err != nil {
-		fmt.Println("Warning: Could not generate image:", err)
-		// Continue without image
-		imageURL = ""
-	}
+	/*
+		imageURL, err := generateMealImage(openaiToken, message)
+		if err != nil {
+			fmt.Println("Warning: Could not generate image:", err)
+			// Continue without image
+			imageURL = ""
+		}
+	*/
 
 	// Create blocks for better formatting
 	blocks := []map[string]interface{}{
@@ -122,14 +124,16 @@ func sendToSlackWithDescription(message, slackToken, openaiToken string) error {
 		},
 	}
 
-	// Add image block if generation was successful
-	if imageURL != "" {
-		blocks = append(blocks, map[string]interface{}{
-			"type":      "image",
-			"image_url": imageURL,
-			"alt_text":  message,
-		})
-	}
+	/*
+		// Add image block if generation was successful
+		if imageURL != "" {
+			blocks = append(blocks, map[string]interface{}{
+				"type":      "image",
+				"image_url": imageURL,
+				"alt_text":  message,
+			})
+		}
+	*/
 
 	payload := map[string]interface{}{
 		"channel": "#heute-mittag",
